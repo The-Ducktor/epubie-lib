@@ -2,12 +2,11 @@
 name = "epubie-lib"
 version = "0.1.0"
 edition = "2024"
-description = "A Rust library for parsing  EPUB files"
-authors = ["Your Name <your.email@example.com>"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/epubie-lib"
-homepage = "https://github.com/yourusername/epubie-lib"
-documentation = "https://docs.rs/epubie-lib"
+description = "A Rust library for parsing EPUB files"
+authors = ["The Ducktor"]
+license = "MIT"
+repository = "https://github.com/The-Ducktor/epubie-lib"
+homepage = "https://github.com/The-Ducktor/epubie-lib"
 readme = "README.md"
 keywords = ["epub", "ebook", "parser", "library"]
 categories = ["parser-implementations", "text-processing"]
