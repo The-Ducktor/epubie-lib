@@ -2,7 +2,7 @@ use epubie_lib::Epub;
 
 fn main() {
     // Example of how to use the epubie-lib library
-    let epub_path = "./example-files/sample-book.epub";
+    let epub_path = "./example-files/iia.epub";
 
     println!("Attempting to parse EPUB: {}", epub_path);
 

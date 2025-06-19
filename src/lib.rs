@@ -13,12 +13,12 @@ mod tests {
 
     #[test]
     fn example_epub() {
-        let path = "./example-files/sample-book.epub";
+        let path = "./example-files/iia.epub";
 
         match Epub::new(path.to_string()) {
             Ok(epub) => {
                 for (i, entry) in epub.get_chapters().iter().enumerate() {
-                    println!(
+                    println!(c
                         "Chapter {}: {} ({} file{})",
                         i + 1,
                         entry.get_title(),

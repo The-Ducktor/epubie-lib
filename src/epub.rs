@@ -172,9 +172,9 @@ struct RootFiles {
 
 #[derive(Debug, Deserialize)]
 struct RootFile {
-    #[serde(rename = "full-path", default)]
+    #[serde(rename = "@full-path", default)]
     full_path: String,
-    #[serde(rename = "media-type", default)]
+    #[serde(rename = "@media-type", default)]
     media_type: String,
 }
 
@@ -188,17 +188,17 @@ struct Package {
 
 #[derive(Debug, Deserialize)]
 struct OpfMetadata {
-    #[serde(rename = "identifier")]
-    identifier: String,
-    #[serde(rename = "title")]
+    #[serde(rename = "dc:identifier", default)]
+    identifier: Vec<String>,
+    #[serde(rename = "dc:title")]
     title: String,
-    #[serde(rename = "creator")]
+    #[serde(rename = "dc:creator")]
     creator: String,
-    #[serde(rename = "language")]
+    #[serde(rename = "dc:language")]
     language: String,
-    #[serde(rename = "date")]
+    #[serde(rename = "dc:date")]
     date: String,
-    #[serde(rename = "description")]
+    #[serde(rename = "dc:description")]
     description: Option<String>,
     #[serde(rename = "meta", default)]
     meta: Vec<Meta>,
@@ -224,13 +224,13 @@ struct Manifest {
 
 #[derive(Debug, Deserialize)]
 struct ManifestItem {
-    #[serde(rename = "id")]
+    #[serde(rename = "@id")]
     id: String,
-    #[serde(rename = "href")]
+    #[serde(rename = "@href")]
     href: String,
-    #[serde(rename = "media-type")]
+    #[serde(rename = "@media-type")]
     media_type: String,
-    #[serde(rename = "properties")]
+    #[serde(rename = "@properties")]
     properties: Option<String>,
 }
 
@@ -242,7 +242,7 @@ struct Spine {
 
 #[derive(Debug, Deserialize)]
 struct ItemRef {
-    #[serde(rename = "idref")]
+    #[serde(rename = "@idref")]
     idref: String,
 }
 
@@ -321,14 +321,19 @@ impl Epub {
         };
 
         // Parse navigation file to get chapter titles first
-        let nav_titles = Self::parse_navigation(&mut archive, &package)?;
+        let nav_titles = Self::parse_navigation(&mut archive, &package, &opf_path)?;
 
         // Extract metadata from OPF
         let mut metadata = Metadata::new(
             package.metadata.title.clone(),
             package.metadata.creator.clone(),
             package.metadata.language.clone(),
-            package.metadata.identifier.clone(),
+            package
+                .metadata
+                .identifier
+                .first()
+                .unwrap_or(&String::new())
+                .clone(),
             package.metadata.date.clone(),
         );
 
@@ -345,7 +350,7 @@ impl Epub {
         }
 
         // Parse all XHTML files and create EpubFile objects
-        let all_files = Self::parse_all_files(&mut archive, &package, &nav_titles)?;
+        let all_files = Self::parse_all_files(&mut archive, &package, &nav_titles, &opf_path)?;
 
         // Create table of contents from navigation
         let table_of_contents = Self::create_table_of_contents(&nav_titles, &all_files);
@@ -425,6 +430,7 @@ impl Epub {
     fn parse_navigation(
         archive: &mut ZipArchive<File>,
         package: &Package,
+        opf_path: &str,
     ) -> Result<HashMap<String, String>, Box<dyn error::Error>> {
         let mut nav_titles = HashMap::new();
 
@@ -434,8 +440,13 @@ impl Epub {
                 .as_ref()
                 .map_or(false, |props| props.contains("nav"))
         }) {
-            // Build the full path to the navigation file (relative to the EPUB directory)
-            let nav_path = format!("EPUB/{}", nav_item.href);
+            // Resolve the navigation file path relative to the OPF directory
+            let opf_dir = if let Some(slash_pos) = opf_path.rfind('/') {
+                &opf_path[..slash_pos + 1] // Include the trailing slash
+            } else {
+                "" // OPF is at root level
+            };
+            let nav_path = format!("{}{}", opf_dir, nav_item.href);
 
             // Try to parse the navigation file
             match archive.by_name(&nav_path) {
@@ -469,8 +480,16 @@ impl Epub {
         archive: &mut ZipArchive<File>,
         package: &Package,
         nav_titles: &HashMap<String, String>,
+        opf_path: &str,
     ) -> Result<Vec<EpubFile>, Box<dyn error::Error>> {
         let mut files = Vec::new();
+
+        // Determine the OPF directory for resolving relative paths
+        let opf_dir = if let Some(slash_pos) = opf_path.rfind('/') {
+            &opf_path[..slash_pos + 1] // Include the trailing slash
+        } else {
+            "" // OPF is at root level
+        };
 
         for manifest_item in &package.manifest.item {
             if manifest_item.media_type == "application/xhtml+xml" {
@@ -484,8 +503,8 @@ impl Epub {
                     continue;
                 }
 
-                // Build the full path to the file
-                let file_path = format!("EPUB/{}", manifest_item.href);
+                // Resolve the file path relative to the OPF directory
+                let file_path = format!("{}{}", opf_dir, manifest_item.href);
 
                 match archive.by_name(&file_path) {
                     Ok(mut file) => {
