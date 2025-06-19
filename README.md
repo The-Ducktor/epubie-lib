@@ -1,6 +1,6 @@
 # epubie-lib
 
-A Rust library for parsing and manipulating EPUB files. This library provides a simple and efficient way to extract metadata, chapters, table of contents, and file contents from EPUB documents.
+A Rust library for parsing EPUB files. This library provides a simple and efficient way to extract metadata, chapters, table of contents, and file contents from EPUB documents. mostly made for my own purposes needing content by chapter rather than by the TOC.
 
 ## Features
 
