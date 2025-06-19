@@ -1,0 +1,23 @@
+[package]
+name = "epubie-lib"
+version = "0.1.0"
+edition = "2024"
+description = "A Rust library for parsing  EPUB files"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/epubie-lib"
+homepage = "https://github.com/yourusername/epubie-lib"
+documentation = "https://docs.rs/epubie-lib"
+readme = "README.md"
+keywords = ["epub", "ebook", "parser", "library"]
+categories = ["parser-implementations", "text-processing"]
+
+[dependencies]
+chrono = "0.4.41"
+uuid = "1.17.0"
+zip = "4.1.0"
+
+
+regex = "1.11.1"
+serde-xml-rs = "0.8.1"
+serde = { version = "1", features = ["derive"] }
