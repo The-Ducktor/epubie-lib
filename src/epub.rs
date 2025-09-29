@@ -334,6 +334,8 @@ impl Metadata {
     }
 }
 
+use std::fs;
+
 /// Main EPUB container that holds all parsed data
 pub struct Epub {
     metadata: Metadata,
@@ -344,6 +346,18 @@ pub struct Epub {
 }
 
 impl Epub {
+    /// Creates a new Epub instance by parsing the EPUB file from a path
+    ///
+    /// # Arguments
+    /// * `file_path` - Path to the EPUB file
+    ///
+    /// # Returns
+    /// * `Result<Epub, Box<dyn Error>>` - Parsed EPUB or error
+    pub fn new(file_path: String) -> Result<Epub, Box<dyn Error>> {
+        let file_bytes = fs::read(file_path)?;
+        Self::from_bytes(file_bytes)
+    }
+
     /// Creates a new Epub instance by parsing the EPUB file from bytes
     ///
     /// # Arguments
@@ -351,7 +365,7 @@ impl Epub {
     ///
     /// # Returns
     /// * `Result<Epub, Box<dyn Error>>` - Parsed EPUB or error
-    pub fn new(file_bytes: Vec<u8>) -> Result<Epub, Box<dyn Error>> {
+    pub fn from_bytes(file_bytes: Vec<u8>) -> Result<Epub, Box<dyn Error>> {
         let mut archive = ZipArchive::new(Cursor::new(&file_bytes))?;
 
         // Read and parse META-INF/container.xml
