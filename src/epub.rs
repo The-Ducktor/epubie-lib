@@ -616,7 +616,8 @@ impl Epub {
                             if let (Some(href), Some(text)) = (cap.get(1), cap.get(2)) {
                                 let href_str = href.as_str().to_string();
                                 let text_str = text.as_str().trim().to_string();
-                                nav_titles.insert(href_str, text_str);
+                                let resolved_href = Self::resolve_path(&nav_path, &href_str);
+                                nav_titles.insert(resolved_href, text_str);
                             }
                         }
                     }
@@ -655,7 +656,7 @@ impl Epub {
                         let epub_file = EpubFile {
                             id: manifest_item.id.clone(),
                             href: manifest_item.href.clone(),
-                            title: nav_titles.get(&manifest_item.href).cloned(),
+                            title: nav_titles.get(&file_path).cloned(),
                             content,
                             media_type: manifest_item.media_type.clone(),
                         };
