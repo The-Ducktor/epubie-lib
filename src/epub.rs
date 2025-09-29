@@ -35,10 +35,10 @@
 //! }
 //! ```
 
-use regex;
+use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::error;
+use std::error::Error;
 use std::fs::File;
 use std::io::Read;
 use zip::read::ZipArchive;
@@ -91,6 +91,7 @@ impl EpubFile {
 }
 
 /// Represents a chapter that can contain multiple files
+#[derive(Debug, Clone)]
 pub struct Chapter {
     title: String,
     files: Vec<EpubFile>,
@@ -133,6 +134,7 @@ impl TocEntry {
 }
 
 /// Complete Table of Contents
+#[derive(Debug, Clone)]
 pub struct TableOfContents {
     entries: Vec<TocEntry>,
 }
@@ -191,27 +193,35 @@ struct OpfMetadata {
     #[serde(rename = "dc:identifier", default)]
     identifier: Vec<String>,
     #[serde(rename = "dc:title")]
-    title: String,
-    #[serde(rename = "dc:creator")]
-    creator: String,
+    title: Option<String>,
+    #[serde(rename = "dc:creator", default)]
+    creator: Option<Vec<String>>,
     #[serde(rename = "dc:language")]
-    language: String,
+    language: Option<String>,
     #[serde(rename = "dc:date")]
-    date: String,
+    date: Option<String>,
     #[serde(rename = "dc:description")]
     description: Option<String>,
+    #[serde(rename = "dc:publisher")]
+    publisher: Option<String>,
+    #[serde(rename = "dc:rights")]
+    rights: Option<String>,
+    #[serde(rename = "dc:subject", default)]
+    subject: Vec<String>,
     #[serde(rename = "meta", default)]
     meta: Vec<Meta>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Meta {
-    #[serde(rename = "name")]
+    #[serde(rename = "@name")]
     name: Option<String>,
-    #[serde(rename = "content")]
+    #[serde(rename = "@content")]
     content: Option<String>,
-    #[serde(rename = "property")]
+    #[serde(rename = "@property")]
     property: Option<String>,
+    #[serde(rename = "@refines")]
+    refines: Option<String>,
     #[serde(rename = "$text")]
     value: Option<String>,
 }
@@ -246,13 +256,14 @@ struct ItemRef {
     idref: String,
 }
 
-// Define the metadata structure
-struct Metadata {
-    title: String,
-    creator: String,
-    language: String,
+/// Metadata structure containing all EPUB metadata
+#[derive(Debug, Clone)]
+pub struct Metadata {
+    title: Option<String>,
+    creator: Vec<String>,
+    language: Option<String>,
     identifier: String,
-    date: String,
+    date: Option<String>,
     publisher: Option<String>,
     description: Option<String>,
     rights: Option<String>,
@@ -262,11 +273,11 @@ struct Metadata {
 
 impl Metadata {
     pub fn new(
-        title: String,
-        creator: String,
-        language: String,
+        title: Option<String>,
+        creator: Vec<String>,
+        language: Option<String>,
         identifier: String,
-        date: String,
+        date: Option<String>,
     ) -> Self {
         Metadata {
             title,
@@ -278,8 +289,48 @@ impl Metadata {
             description: None,
             rights: None,
             cover: None,
-            tags: vec![],
+            tags: Vec::new(),
         }
+    }
+
+    pub fn get_title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    pub fn get_creators(&self) -> &[String] {
+        &self.creator
+    }
+
+    pub fn get_language(&self) -> Option<&str> {
+        self.language.as_deref()
+    }
+
+    pub fn get_identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    pub fn get_date(&self) -> Option<&str> {
+        self.date.as_deref()
+    }
+
+    pub fn get_publisher(&self) -> Option<&str> {
+        self.publisher.as_deref()
+    }
+
+    pub fn get_description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    pub fn get_rights(&self) -> Option<&str> {
+        self.rights.as_deref()
+    }
+
+    pub fn get_cover(&self) -> Option<&str> {
+        self.cover.as_deref()
+    }
+
+    pub fn get_tags(&self) -> &[String] {
+        &self.tags
     }
 }
 
@@ -289,6 +340,7 @@ pub struct Epub {
     chapters: Vec<Chapter>,
     table_of_contents: TableOfContents,
     all_files: Vec<EpubFile>,
+    file_path: String,
 }
 
 impl Epub {
@@ -298,9 +350,9 @@ impl Epub {
     /// * `file_path` - Path to the EPUB file
     ///
     /// # Returns
-    /// * `Result<Epub, Box<dyn error::Error>>` - Parsed EPUB or error
-    pub fn new(file_path: String) -> Result<Epub, Box<dyn error::Error>> {
-        let file = File::open(file_path)?;
+    /// * `Result<Epub, Box<dyn Error>>` - Parsed EPUB or error
+    pub fn new(file_path: String) -> Result<Epub, Box<dyn Error>> {
+        let file = File::open(&file_path)?;
         let mut archive = ZipArchive::new(file)?;
 
         // Read and parse META-INF/container.xml
@@ -326,28 +378,25 @@ impl Epub {
         // Extract metadata from OPF
         let mut metadata = Metadata::new(
             package.metadata.title.clone(),
-            package.metadata.creator.clone(),
+            package.metadata.creator.clone().unwrap_or_default(),
             package.metadata.language.clone(),
             package
                 .metadata
                 .identifier
                 .first()
-                .unwrap_or(&String::new())
-                .clone(),
+                .cloned()
+                .unwrap_or_default(),
             package.metadata.date.clone(),
         );
 
         // Set optional metadata fields
         metadata.description = package.metadata.description.clone();
+        metadata.publisher = package.metadata.publisher.clone();
+        metadata.rights = package.metadata.rights.clone();
+        metadata.tags = package.metadata.subject.clone();
 
-        // Find cover from meta tags
-        for meta in &package.metadata.meta {
-            if let (Some(name), Some(content)) = (&meta.name, &meta.content) {
-                if name == "cover" {
-                    metadata.cover = Some(content.clone());
-                }
-            }
-        }
+        // Find cover from meta tags - handle both EPUB 2 and 3 formats
+        metadata.cover = Self::find_cover_id(&package);
 
         // Parse all XHTML files and create EpubFile objects
         let all_files = Self::parse_all_files(&mut archive, &package, &nav_titles, &opf_path)?;
@@ -363,48 +412,103 @@ impl Epub {
             chapters,
             table_of_contents,
             all_files,
+            file_path,
         })
     }
 
     // Getter methods for accessing parsed data
-    pub fn get_title(&self) -> &str {
-        &self.metadata.title
+    pub fn get_title(&self) -> Option<&str> {
+        self.metadata.get_title()
     }
 
-    pub fn get_creator(&self) -> &str {
-        &self.metadata.creator
+    pub fn get_creator(&self) -> Option<&str> {
+        self.metadata.get_creators().first().map(|s| s.as_str())
     }
 
-    pub fn get_language(&self) -> &str {
-        &self.metadata.language
+    pub fn get_creators(&self) -> &[String] {
+        self.metadata.get_creators()
+    }
+
+    pub fn get_language(&self) -> Option<&str> {
+        self.metadata.get_language()
     }
 
     pub fn get_identifier(&self) -> &str {
-        &self.metadata.identifier
+        self.metadata.get_identifier()
     }
 
-    pub fn get_date(&self) -> &str {
-        &self.metadata.date
+    pub fn get_date(&self) -> Option<&str> {
+        self.metadata.get_date()
     }
 
     pub fn get_publisher(&self) -> Option<&str> {
-        self.metadata.publisher.as_deref()
+        self.metadata.get_publisher()
     }
 
     pub fn get_description(&self) -> Option<&str> {
-        self.metadata.description.as_deref()
+        self.metadata.get_description()
     }
 
     pub fn get_rights(&self) -> Option<&str> {
-        self.metadata.rights.as_deref()
+        self.metadata.get_rights()
     }
 
     pub fn get_cover(&self) -> Option<&str> {
-        self.metadata.cover.as_deref()
+        self.metadata.get_cover()
     }
 
     pub fn get_tags(&self) -> &[String] {
-        &self.metadata.tags
+        self.metadata.get_tags()
+    }
+
+    pub fn get_metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+
+    /// Get cover image as bytes
+    pub fn get_cover_bytes(&self) -> Option<Vec<u8>> {
+        let cover_id = self.metadata.cover.as_ref()?;
+        
+        // Open the EPUB file
+        let file = File::open(&self.file_path).ok()?;
+        let mut archive = ZipArchive::new(file).ok()?;
+
+        // Read container.xml
+        let mut xml = String::new();
+        {
+            let mut container_file = archive.by_name("META-INF/container.xml").ok()?;
+            container_file.read_to_string(&mut xml).ok()?;
+        }
+        let container = parse_container_xml(&xml).ok()?;
+        let opf_path = &container.rootfiles.rootfile[0].full_path;
+
+        // Read OPF file
+        let mut opf_xml = String::new();
+        {
+            let mut opf_file = archive.by_name(opf_path).ok()?;
+            opf_file.read_to_string(&mut opf_xml).ok()?;
+        }
+        let package = parse_opf_xml(&opf_xml).ok()?;
+
+        // Find the manifest item with the cover id
+        let manifest_item = package
+            .manifest
+            .item
+            .iter()
+            .find(|item| &item.id == cover_id)?;
+        
+        let cover_href = &manifest_item.href;
+
+        // Resolve the cover file path relative to the OPF directory
+        let cover_path = Self::resolve_path(opf_path, cover_href);
+
+        // Extract the cover file as bytes
+        let mut buf = Vec::new();
+        {
+            let mut cover_file = archive.by_name(&cover_path).ok()?;
+            cover_file.read_to_end(&mut buf).ok()?;
+        }
+        Some(buf)
     }
 
     pub fn get_chapters(&self) -> &[Chapter] {
@@ -427,11 +531,58 @@ impl Epub {
         self.all_files.len()
     }
 
+    /// Find cover ID from metadata - handles both EPUB 2 and 3 formats
+    fn find_cover_id(package: &Package) -> Option<String> {
+        // EPUB 2: Look for meta with name="cover"
+        for meta in &package.metadata.meta {
+            if let (Some(name), Some(content)) = (&meta.name, &meta.content) {
+                if name == "cover" {
+                    return Some(content.clone());
+                }
+            }
+        }
+
+        // EPUB 3: Look for meta with property="cover-image"
+        for meta in &package.metadata.meta {
+            if let Some(property) = &meta.property {
+                if property == "cover-image" {
+                    if let Some(content) = &meta.content {
+                        return Some(content.clone());
+                    }
+                    // Sometimes the ID is in the text content
+                    if let Some(value) = &meta.value {
+                        return Some(value.clone());
+                    }
+                }
+            }
+        }
+
+        // Fallback: Look for manifest items with properties="cover-image"
+        for item in &package.manifest.item {
+            if let Some(properties) = &item.properties {
+                if properties.contains("cover-image") {
+                    return Some(item.id.clone());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Resolve a relative path against a base path
+    fn resolve_path(base_path: &str, relative_path: &str) -> String {
+        if let Some(slash_pos) = base_path.rfind('/') {
+            format!("{}/{}", &base_path[..slash_pos], relative_path)
+        } else {
+            relative_path.to_string()
+        }
+    }
+
     fn parse_navigation(
         archive: &mut ZipArchive<File>,
         package: &Package,
         opf_path: &str,
-    ) -> Result<HashMap<String, String>, Box<dyn error::Error>> {
+    ) -> Result<HashMap<String, String>, Box<dyn Error>> {
         let mut nav_titles = HashMap::new();
 
         // Find the navigation file in the manifest
@@ -440,24 +591,15 @@ impl Epub {
                 .as_ref()
                 .map_or(false, |props| props.contains("nav"))
         }) {
-            // Resolve the navigation file path relative to the OPF directory
-            let opf_dir = if let Some(slash_pos) = opf_path.rfind('/') {
-                &opf_path[..slash_pos + 1] // Include the trailing slash
-            } else {
-                "" // OPF is at root level
-            };
-            let nav_path = format!("{}{}", opf_dir, nav_item.href);
+            let nav_path = Self::resolve_path(opf_path, &nav_item.href);
 
             // Try to parse the navigation file
-            match archive.by_name(&nav_path) {
-                Ok(mut nav_file) => {
-                    let mut html = String::new();
-                    nav_file.read_to_string(&mut html)?;
-
-                    // Use simple regex pattern to extract href and text from <a> tags
-                    // Pattern: <a href="..." ...>TEXT</a>
+            if let Ok(mut nav_file) = archive.by_name(&nav_path) {
+                let mut html = String::new();
+                if nav_file.read_to_string(&mut html).is_ok() {
+                    // Use regex to extract href and text from <a> tags
                     let pattern = r#"<a\s+href="([^"]+)"[^>]*>([^<]+)</a>"#;
-                    if let Ok(re) = regex::Regex::new(pattern) {
+                    if let Ok(re) = Regex::new(pattern) {
                         for cap in re.captures_iter(&html) {
                             if let (Some(href), Some(text)) = (cap.get(1), cap.get(2)) {
                                 let href_str = href.as_str().to_string();
@@ -466,9 +608,6 @@ impl Epub {
                             }
                         }
                     }
-                }
-                Err(_) => {
-                    // Navigation file not found or couldn't be read, continue without titles
                 }
             }
         }
@@ -481,15 +620,8 @@ impl Epub {
         package: &Package,
         nav_titles: &HashMap<String, String>,
         opf_path: &str,
-    ) -> Result<Vec<EpubFile>, Box<dyn error::Error>> {
+    ) -> Result<Vec<EpubFile>, Box<dyn Error>> {
         let mut files = Vec::new();
-
-        // Determine the OPF directory for resolving relative paths
-        let opf_dir = if let Some(slash_pos) = opf_path.rfind('/') {
-            &opf_path[..slash_pos + 1] // Include the trailing slash
-        } else {
-            "" // OPF is at root level
-        };
 
         for manifest_item in &package.manifest.item {
             if manifest_item.media_type == "application/xhtml+xml" {
@@ -503,14 +635,11 @@ impl Epub {
                     continue;
                 }
 
-                // Resolve the file path relative to the OPF directory
-                let file_path = format!("{}{}", opf_dir, manifest_item.href);
+                let file_path = Self::resolve_path(opf_path, &manifest_item.href);
 
-                match archive.by_name(&file_path) {
-                    Ok(mut file) => {
-                        let mut content = String::new();
-                        file.read_to_string(&mut content)?;
-
+                if let Ok(mut file) = archive.by_name(&file_path) {
+                    let mut content = String::new();
+                    if file.read_to_string(&mut content).is_ok() {
                         let epub_file = EpubFile {
                             id: manifest_item.id.clone(),
                             href: manifest_item.href.clone(),
@@ -520,10 +649,6 @@ impl Epub {
                         };
 
                         files.push(epub_file);
-                    }
-                    Err(_) => {
-                        // File not found or couldn't be read, skip it
-                        continue;
                     }
                 }
             }
@@ -558,7 +683,7 @@ impl Epub {
             .map(|file| (file.id.clone(), file))
             .collect();
 
-        for (_index, itemref) in spine.itemref.iter().enumerate() {
+        for itemref in &spine.itemref {
             if let Some(file) = file_map.get(&itemref.idref) {
                 // Determine if this should start a new chapter
                 let should_start_new_chapter = if current_chapter_files.is_empty() {
@@ -566,7 +691,7 @@ impl Epub {
                 } else {
                     // Start new chapter if:
                     // 1. The file has a title from navigation
-                    // 2. The base name changes (e.g., chapter_1 vs chapter_2)
+                    // 2. The base name changes significantly
                     file.title.is_some()
                         && !Self::files_belong_to_same_chapter(&current_chapter_files[0], file)
                 };
@@ -622,22 +747,16 @@ impl Epub {
         }
         id.to_string()
     }
-
-    fn get_zip_archive(file_path: &str) -> Result<ZipArchive<File>, Box<dyn error::Error>> {
-        let file = File::open(file_path)?;
-        let archive = ZipArchive::new(file)?;
-        Ok(archive)
-    }
 }
 
 // Function to parse container.xml using serde-xml-rs
-fn parse_container_xml(xml: &str) -> Result<Container, Box<dyn std::error::Error>> {
+fn parse_container_xml(xml: &str) -> Result<Container, Box<dyn Error>> {
     let container: Container = serde_xml_rs::from_str(xml)?;
     Ok(container)
 }
 
 // Function to parse OPF file using serde-xml-rs
-fn parse_opf_xml(xml: &str) -> Result<Package, Box<dyn std::error::Error>> {
+fn parse_opf_xml(xml: &str) -> Result<Package, Box<dyn Error>> {
     let package: Package = serde_xml_rs::from_str(xml)?;
     Ok(package)
 }
