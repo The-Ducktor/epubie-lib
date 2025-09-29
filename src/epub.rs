@@ -39,8 +39,8 @@ use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::File;
-use std::io::Read;
+
+use std::io::{Cursor, Read, Seek};
 use zip::read::ZipArchive;
 
 /// Represents a single file within an EPUB
@@ -340,20 +340,19 @@ pub struct Epub {
     chapters: Vec<Chapter>,
     table_of_contents: TableOfContents,
     all_files: Vec<EpubFile>,
-    file_path: String,
+    file_bytes: Vec<u8>,
 }
 
 impl Epub {
-    /// Creates a new Epub instance by parsing the EPUB file at the given path
+    /// Creates a new Epub instance by parsing the EPUB file from bytes
     ///
     /// # Arguments
-    /// * `file_path` - Path to the EPUB file
+    /// * `file_bytes` - Bytes of the EPUB file
     ///
     /// # Returns
     /// * `Result<Epub, Box<dyn Error>>` - Parsed EPUB or error
-    pub fn new(file_path: String) -> Result<Epub, Box<dyn Error>> {
-        let file = File::open(&file_path)?;
-        let mut archive = ZipArchive::new(file)?;
+    pub fn new(file_bytes: Vec<u8>) -> Result<Epub, Box<dyn Error>> {
+        let mut archive = ZipArchive::new(Cursor::new(&file_bytes))?;
 
         // Read and parse META-INF/container.xml
         let container = {
@@ -412,7 +411,7 @@ impl Epub {
             chapters,
             table_of_contents,
             all_files,
-            file_path,
+            file_bytes,
         })
     }
 
@@ -468,10 +467,9 @@ impl Epub {
     /// Get cover image as bytes
     pub fn get_cover_bytes(&self) -> Option<Vec<u8>> {
         let cover_id = self.metadata.cover.as_ref()?;
-        
-        // Open the EPUB file
-        let file = File::open(&self.file_path).ok()?;
-        let mut archive = ZipArchive::new(file).ok()?;
+
+        // Open the EPUB file from bytes
+        let mut archive = ZipArchive::new(Cursor::new(&self.file_bytes)).ok()?;
 
         // Read container.xml
         let mut xml = String::new();
@@ -496,7 +494,7 @@ impl Epub {
             .item
             .iter()
             .find(|item| &item.id == cover_id)?;
-        
+
         let cover_href = &manifest_item.href;
 
         // Resolve the cover file path relative to the OPF directory
@@ -579,7 +577,7 @@ impl Epub {
     }
 
     fn parse_navigation(
-        archive: &mut ZipArchive<File>,
+        archive: &mut ZipArchive<impl Read + Seek>,
         package: &Package,
         opf_path: &str,
     ) -> Result<HashMap<String, String>, Box<dyn Error>> {
@@ -616,7 +614,7 @@ impl Epub {
     }
 
     fn parse_all_files(
-        archive: &mut ZipArchive<File>,
+        archive: &mut ZipArchive<impl Read + Seek>,
         package: &Package,
         nav_titles: &HashMap<String, String>,
         opf_path: &str,
