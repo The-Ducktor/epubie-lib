@@ -2,7 +2,7 @@ use epubie_lib::Epub;
 
 fn main() {
     // Example of how to use the epubie-lib library
-    let epub_path = "./example-files/iia.epub";
+    let epub_path = "./example-files/wsw.epub";
 
     println!("Attempting to parse EPUB: {}", epub_path);
 
@@ -10,11 +10,27 @@ fn main() {
         Ok(epub) => {
             // Display basic metadata
             println!("\n=== EPUB Metadata ===");
-            println!("Title: {}", epub.get_title());
-            println!("Creator: {}", epub.get_creator());
-            println!("Language: {}", epub.get_language());
+            if let Some(title) = epub.get_title() {
+                println!("Title: {}", title);
+            } else {
+                println!("Title: None");
+            }
+            if let Some(creator) = epub.get_creator() {
+                println!("Creator: {}", creator);
+            } else {
+                println!("Creator: None");
+            }
+            if let Some(language) = epub.get_language() {
+                println!("Language: {}", language);
+            } else {
+                println!("Language: None");
+            }
             println!("Identifier: {}", epub.get_identifier());
-            println!("Date: {}", epub.get_date());
+            if let Some(date) = epub.get_date() {
+                println!("Date: {}", date);
+            } else {
+                println!("Date: None");
+            }
 
             if let Some(publisher) = epub.get_publisher() {
                 println!("Publisher: {}", publisher);
