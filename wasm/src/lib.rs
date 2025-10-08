@@ -44,6 +44,63 @@ impl EpubWasm {
         self.epub.get_creator().map(|s| s.to_string())
     }
 
+    #[wasm_bindgen(js_name = getCreators)]
+    pub fn get_creators(&self) -> Result<JsValue, JsValue> {
+        let creators: Vec<String> = self
+            .epub
+            .get_creators()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        serde_wasm_bindgen::to_value(&creators).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn language(&self) -> Option<String> {
+        self.epub.get_language().map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn identifier(&self) -> String {
+        self.epub.get_identifier().to_string()
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn date(&self) -> Option<String> {
+        self.epub.get_date().map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn publisher(&self) -> Option<String> {
+        self.epub.get_publisher().map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn description(&self) -> Option<String> {
+        self.epub.get_description().map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn rights(&self) -> Option<String> {
+        self.epub.get_rights().map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn cover(&self) -> Option<String> {
+        self.epub.get_cover().map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(js_name = getTags)]
+    pub fn get_tags(&self) -> Result<JsValue, JsValue> {
+        let tags: Vec<String> = self.epub.get_tags().iter().map(|s| s.to_string()).collect();
+        serde_wasm_bindgen::to_value(&tags).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    #[wasm_bindgen(js_name = getCoverBytes)]
+    pub fn get_cover_bytes(&self) -> Option<Vec<u8>> {
+        self.epub.get_cover_bytes()
+    }
+
     #[wasm_bindgen(js_name = getChapters)]
     pub fn get_chapters(&self) -> Result<JsValue, JsValue> {
         let chapters_data: Vec<ChapterData> = self
