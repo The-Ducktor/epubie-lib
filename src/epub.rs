@@ -191,7 +191,7 @@ struct Package {
 #[derive(Debug, Deserialize)]
 struct OpfMetadata {
     #[serde(rename = "dc:identifier", default)]
-    identifier: Vec<String>,
+    identifier: Option<String>,
     #[serde(rename = "dc:title")]
     title: Option<String>,
     #[serde(rename = "dc:creator", default)]
@@ -393,12 +393,7 @@ impl Epub {
             package.metadata.title.clone(),
             package.metadata.creator.clone().unwrap_or_default(),
             package.metadata.language.clone(),
-            package
-                .metadata
-                .identifier
-                .first()
-                .cloned()
-                .unwrap_or_default(),
+            package.metadata.identifier.clone().unwrap_or_default(),
             package.metadata.date.clone(),
         );
 
