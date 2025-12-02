@@ -1,3 +1,6 @@
 /target
 /example-files/*
 .DS_Store
+
+/wasm/pkg
+/wasm/target

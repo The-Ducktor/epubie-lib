@@ -39,8 +39,8 @@ use regex::Regex;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::File;
-use std::io::Read;
+
+use std::io::{Cursor, Read, Seek};
 use zip::read::ZipArchive;
 
 /// Represents a single file within an EPUB
@@ -191,7 +191,7 @@ struct Package {
 #[derive(Debug, Deserialize)]
 struct OpfMetadata {
     #[serde(rename = "dc:identifier", default)]
-    identifier: Vec<String>,
+    identifier: Option<String>,
     #[serde(rename = "dc:title")]
     title: Option<String>,
     #[serde(rename = "dc:creator", default)]
@@ -334,17 +334,19 @@ impl Metadata {
     }
 }
 
+use std::fs;
+
 /// Main EPUB container that holds all parsed data
 pub struct Epub {
     metadata: Metadata,
     chapters: Vec<Chapter>,
     table_of_contents: TableOfContents,
     all_files: Vec<EpubFile>,
-    file_path: String,
+    file_bytes: Vec<u8>,
 }
 
 impl Epub {
-    /// Creates a new Epub instance by parsing the EPUB file at the given path
+    /// Creates a new Epub instance by parsing the EPUB file from a path
     ///
     /// # Arguments
     /// * `file_path` - Path to the EPUB file
@@ -352,8 +354,19 @@ impl Epub {
     /// # Returns
     /// * `Result<Epub, Box<dyn Error>>` - Parsed EPUB or error
     pub fn new(file_path: String) -> Result<Epub, Box<dyn Error>> {
-        let file = File::open(&file_path)?;
-        let mut archive = ZipArchive::new(file)?;
+        let file_bytes = fs::read(file_path)?;
+        Self::from_bytes(file_bytes)
+    }
+
+    /// Creates a new Epub instance by parsing the EPUB file from bytes
+    ///
+    /// # Arguments
+    /// * `file_bytes` - Bytes of the EPUB file
+    ///
+    /// # Returns
+    /// * `Result<Epub, Box<dyn Error>>` - Parsed EPUB or error
+    pub fn from_bytes(file_bytes: Vec<u8>) -> Result<Epub, Box<dyn Error>> {
+        let mut archive = ZipArchive::new(Cursor::new(&file_bytes))?;
 
         // Read and parse META-INF/container.xml
         let container = {
@@ -380,12 +393,7 @@ impl Epub {
             package.metadata.title.clone(),
             package.metadata.creator.clone().unwrap_or_default(),
             package.metadata.language.clone(),
-            package
-                .metadata
-                .identifier
-                .first()
-                .cloned()
-                .unwrap_or_default(),
+            package.metadata.identifier.clone().unwrap_or_default(),
             package.metadata.date.clone(),
         );
 
@@ -412,7 +420,7 @@ impl Epub {
             chapters,
             table_of_contents,
             all_files,
-            file_path,
+            file_bytes,
         })
     }
 
@@ -468,10 +476,9 @@ impl Epub {
     /// Get cover image as bytes
     pub fn get_cover_bytes(&self) -> Option<Vec<u8>> {
         let cover_id = self.metadata.cover.as_ref()?;
-        
-        // Open the EPUB file
-        let file = File::open(&self.file_path).ok()?;
-        let mut archive = ZipArchive::new(file).ok()?;
+
+        // Open the EPUB file from bytes
+        let mut archive = ZipArchive::new(Cursor::new(&self.file_bytes)).ok()?;
 
         // Read container.xml
         let mut xml = String::new();
@@ -496,7 +503,7 @@ impl Epub {
             .item
             .iter()
             .find(|item| &item.id == cover_id)?;
-        
+
         let cover_href = &manifest_item.href;
 
         // Resolve the cover file path relative to the OPF directory
@@ -579,7 +586,7 @@ impl Epub {
     }
 
     fn parse_navigation(
-        archive: &mut ZipArchive<File>,
+        archive: &mut ZipArchive<impl Read + Seek>,
         package: &Package,
         opf_path: &str,
     ) -> Result<HashMap<String, String>, Box<dyn Error>> {
@@ -604,7 +611,8 @@ impl Epub {
                             if let (Some(href), Some(text)) = (cap.get(1), cap.get(2)) {
                                 let href_str = href.as_str().to_string();
                                 let text_str = text.as_str().trim().to_string();
-                                nav_titles.insert(href_str, text_str);
+                                let resolved_href = Self::resolve_path(&nav_path, &href_str);
+                                nav_titles.insert(resolved_href, text_str);
                             }
                         }
                     }
@@ -616,7 +624,7 @@ impl Epub {
     }
 
     fn parse_all_files(
-        archive: &mut ZipArchive<File>,
+        archive: &mut ZipArchive<impl Read + Seek>,
         package: &Package,
         nav_titles: &HashMap<String, String>,
         opf_path: &str,
@@ -643,7 +651,7 @@ impl Epub {
                         let epub_file = EpubFile {
                             id: manifest_item.id.clone(),
                             href: manifest_item.href.clone(),
-                            title: nav_titles.get(&manifest_item.href).cloned(),
+                            title: nav_titles.get(&file_path).cloned(),
                             content,
                             media_type: manifest_item.media_type.clone(),
                         };
